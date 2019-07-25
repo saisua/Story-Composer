@@ -88,17 +88,18 @@ class Frame(wx.Frame):
     # new_panel creates a canvas inside the Frame. It returns a Panel object
     # which has functions to create and draw widgets
     def new_panel(self, size:tuple=None, location:tuple=(0,0),
-                        bgcolor:tuple=(90,90,90), scrollbarsxy_size:tuple=False,
+                        bgcolor:tuple=(90,90,90), scrollbarsxy_size:tuple=False, scrollbarsxy_extend:tuple=0,
                         style:"style1 | style2"=wx.BORDER_THEME, resizable:bool=True,
                         name:str='', allow_files_drop:bool=False, parent:object=None) -> 'Panel':
         logging.debug(f"Frame.new_panel(self, {size}, {location}, {bgcolor}, {scrollbarsxy_size},"
-                                f" {style}, {resizable}, {name}, {allow_files_drop}, {parent})")
+                                f" {scrollbarsxy_extend}, {style}, {resizable}, {name}, {allow_files_drop},"
+                                f" {parent})")
 
         if(parent is None): parent = self
         if(size is None): size = self._size
 
-        self.panels.append(Panel(parent, size, location, bgcolor, scrollbarsxy_size, style, resizable,
-                                        name, allow_files_drop)) 
+        self.panels.append(Panel(parent, size, location, bgcolor, scrollbarsxy_size, scrollbarsxy_extend,
+                                        style, resizable, name, allow_files_drop)) 
         return self.panels[-1]
 
     
@@ -120,10 +121,12 @@ class Frame(wx.Frame):
 """
 class Panel(wx.ScrolledWindow):
     def __init__(self, parent:wx.Frame, size:tuple, location:tuple=(0,0), bgcolor:tuple=(90,90,90),
-                        scrollbarsxy_size:tuple=False, style:"style1 | style2"=wx.BORDER_THEME,
-                        resizable:bool=True, name:str='', allow_files_drop:bool=False):
+                        scrollbarsxy_size:tuple=False, scrollbarsxy_extend:tuple=0,
+                        style:"style1 | style2"=wx.BORDER_THEME,
+                        resizable:tuple=True, name:str='', allow_files_drop:bool=False):
         logging.info("New Panel(wx.ScrolledWindow) created.")
-        logging.debug(f"Panel.__init__(self, {parent}, {size}, {location}, {bgcolor})")
+        logging.debug(f"Panel.__init__(self, {parent}, {size}, {location}, {bgcolor}, {scrollbarsxy_size}, "
+                        f"{scrollbarsxy_extend}, {style}, {resizable}, {name}, {allow_files_drop}")
 
         self._parent = parent
         self.name = name
@@ -135,6 +138,10 @@ class Panel(wx.ScrolledWindow):
         self.SetBackgroundColour(bgcolor)
         if(scrollbarsxy_size): 
             self.SetScrollbars(1,1,*scrollbarsxy_size)
+
+            self.extend_scrollbar = scrollbarsxy_extend
+
+            self.Bind(wx.EVT_SCROLL_BOTTOM, self.__extend_scrollbar__)
         
         self.resizable = resizable
         if(resizable):
@@ -149,7 +156,6 @@ class Panel(wx.ScrolledWindow):
         self.checkbox = []
         self.bitmaps = []
         self.textbox = []
-        self.bitmaps_images = {}
 
         self.widgets_list = [self.buttons, self.text, self.checkbox,
                             self.bitmaps, self.textbox]
@@ -161,18 +167,19 @@ class Panel(wx.ScrolledWindow):
 
     # new_panel creates a canvas inside the Panel parent.
     def new_panel(self, size:tuple=None, location:tuple=(0,0),
-                        bgcolor:tuple=(90,90,90), scrollbarsxy_size:tuple=False, 
+                        bgcolor:tuple=(90,90,90), scrollbarsxy_size:tuple=False, scrollbarsxy_extend:tuple=0, 
                         style:"style1 | style2"=wx.BORDER_THEME, resizable:bool=True,
                         name:str='', allow_files_drop:bool=False, parent:object=None) -> 'Panel':
         logging.debug(f"Parent.new_panel(self, {size}, {location}, {bgcolor}, {scrollbarsxy_size}, "
-                                f"{style}, {resizable}, {name}, {allow_files_drop}, {parent}")
+                                f"{scrollbarsxy_extend}, {style}, {resizable}, {name}, {allow_files_drop}, "
+                                f"{parent}")
 
         if(parent is None): parent = self
         if(size is None): size = self._size
 
         #Do not chech_format since it is done in __init__
-        self.panels.append(Panel(parent, size, location, bgcolor, scrollbarsxy_size, style, resizable,
-                                        name, allow_files_drop)) 
+        self.panels.append(Panel(parent, size, location, bgcolor, scrollbarsxy_size, scrollbarsxy_extend, 
+                                        style, resizable, name, allow_files_drop)) 
         return self.panels[-1]
 
     # Adds a button in the panel
@@ -192,7 +199,7 @@ class Panel(wx.ScrolledWindow):
         return self.buttons[-1][0]
 
     # Adds a text box in the panel
-    def add_text(self, text:str, location:tuple, size:tuple, color:tuple=(0,0,0), 
+    def add_text(self, location:tuple, size:tuple, text:str, color:tuple=(0,0,0), 
                         bgcolor:tuple=None, font:wx.Font=None, 
                         style:"style1 | style2"=0, parent:wx.Window=None) -> wx.StaticText:
         logging.debug(f"Panel.add_text(self, {text}, {location}, {size},"
@@ -256,60 +263,21 @@ class Panel(wx.ScrolledWindow):
         return self.checkbox[-1][0]
 
     # Adds an image as a StaticBitmap in the frame
-    def add_image(self, location:tuple, size:tuple, image_path:"str(path)"=None,
-                            style:"style1 | style2"=wx.Center, allow_files_drop:bool=False, 
-                            parent:wx.Window=None) -> wx.StaticBitmap:
+    def add_image(self, location:tuple, size:tuple, image_path:"str(path)"="None.jpg",
+                            style:"style1 | style2"=wx.Center, allow_files_drop:bool=False,
+                            multiimage:bool=True, parent:wx.Window=None, menu:bool=True,
+                            bitmap_images:list=[]) -> wx.StaticBitmap:
         logging.debug(f"Panel.add_image(self, {image_path}, {location}, {size}, {style}, {parent})")
 
         if(parent is None): parent = self
-        
-        if(image_path is None): image_path = "None.jpg"
+        if(menu): size = f"{str(size[:-1])}-@30)"
 
-        self.bitmaps.append([wx.StaticBitmap(parent, -1, self.image_from_path(image_path, parent), self.check_format(location),
-                                self.check_format(size), style), 
+        self.bitmaps.append([Image_container(self, location, size, style, image_path, menu, bitmap_images), 
                                 self.check_format(size,False), self.check_format(location,False)])
-        self.bitmaps_images[self.bitmaps[-1][0]] = []
 
-        self.bitmaps[-1][0].CenterOnParent()
-
-        if(image_path != "None.jpg"): self.bitmaps_images[self.bitmaps[-1][0]].append(image_path)
-
-        if(allow_files_drop): self.Bind(wx.EVT_DROP_FILES, 
-                                        lambda event: self.image_drop_event(event, self.bitmaps[-1][0]))
+        if(allow_files_drop): self.Bind(wx.EVT_DROP_FILES, self.bitmaps[-1][0].image_drop_event)
 
         return self.bitmaps[-1][0]
-
-    # Saves all images droped on event
-    def image_drop_event(self, event:wx.EVT_DROP_FILES, bitmap:wx.StaticBitmap, filetypes:list=["jpg","jpeg","png"]):
-        logging.debug(f"Panel.image_drop_event(self, {event}, {bitmap}, {filetypes})")
-        logging.info(f"The user has dropped {event.GetNumberOfFiles()} file"
-                        f"{'s' if event.GetNumberOfFiles() != 1 else ''}")
-        for image in event.GetFiles():
-            if(image[len(image)-image[::-1].find("."):] in filetypes):
-                self.bitmaps_images[bitmap].append(image)
-
-        if(len(self.bitmaps_images[bitmap])):
-            bitmap.SetBitmap(self.image_from_path(self.bitmaps_images[bitmap][-1], 
-                                    bitmap.GetParent()))
-
-            bitmap.CenterOnParent()
-
-            bitmap.Refresh()
-
-    # Returns a bitmap from a image_path
-    def image_from_path(self, image_path:str, panel:wx.Window, scale_to:str='fit') -> wx.Bitmap:
-        logging.debug(f"Panel.image_from_path(self, {image_path}, {panel}, {scale_to})")
-        img_size = imread(image_path).shape[:2][::-1]
-
-        if(img_size[0] < img_size[1]):
-            img_size = (img_size[0]*panel.Size.y/img_size[1], panel.Size.y)
-        elif(img_size[0] > img_size[1]):
-            img_size = (panel.Size.x, img_size[1]*panel.Size.x/img_size[0])
-        
-        logging.debug(f"Formatted image has size {img_size}")
-
-        return wx.Image(image_path, wx.BITMAP_TYPE_ANY).Scale(img_size[0], img_size[1],
-                                        wx.IMAGE_QUALITY_HIGH).ConvertToBitmap()
 
     # Runs instances times function(**args). This function is designed to create
     # rows or columns
@@ -392,7 +360,7 @@ class Panel(wx.ScrolledWindow):
 
             num = 0
             for splitted in multisplit("\\"+"|\\".join(characters)+"+", dimension):
-                #logging.debug(f"dim: {dim_num} || splitted: {splitted}")
+                logging.debug(f"dim: {dim_num} || splitted: {splitted}")
                 if(not splitted): continue
                 if(splitted[0] == '@'): splitted = f"{splitted[1:]}/{size[dim_num]}*_size[{dim_num}]"
                 elif(splitted[0] == '%'): splitted = splitted[1:]+f"*_size[{dim_num}]"
@@ -404,10 +372,11 @@ class Panel(wx.ScrolledWindow):
         return before + str(final).replace('\'','') + after
 
     def __resize__(self):
+        logging.debug("Panel.__resize__(self)")
         if(not self.resizable): return
         
-        self.SetSize(self.check_format(self.resize))
         self.SetPosition(self.check_format(self.relocate))
+        self.SetSize(self.check_format(self.resize))
 
         for panel in self.panels:
             panel.__resize__()
@@ -418,10 +387,17 @@ class Panel(wx.ScrolledWindow):
                 widget[0].SetSize(self.check_format(widget[1]))
                 widget[0].SetPosition(self.check_format(widget[2]))
 
-                if(type(widget[0]) == wx.StaticBitmap): widget[0].CenterOnParent()
-
         self.Refresh()
 
+    def __extend_scrollbar__(self, event):
+        logging.debug(f"Panel.__extend_scrollbar__(self, {event})")
+        new_size = check_format(self.extend_scrollbar)
+
+        if(type(new_size) == int): new_size = (new_size, new_size)
+
+        event.GetParent().GetScroll(event.GetOrientation()).Range = (event.GetParent().GetScroll(event.GetOrientation()).Range +
+                                                                    new_size[event.GetOrientation()])
+    
     @property
     def delete(self, step:int=-1) -> None:
         logging.debug(f"Panel.delete(self)")
@@ -435,6 +411,126 @@ class Panel(wx.ScrolledWindow):
     @property
     def _size(self) -> tuple:
         return (self.Size.x, self.Size.y)
+
+
+"""
+    A special class in order to make ALL StaticBitmap containers look better
+    that's the reason it is in front.py
+"""
+class Image_container(wx.StaticBitmap):
+    def __init__(self, parent:Panel, location:tuple, size:tuple, style:'style1 | style2',
+                        image_path:str="None.jpg", menu:bool=True, bitmap_images:list=[]):
+        
+        self._parent = parent
+        self.bitmap_images = bitmap_images
+
+        self.__class__.__base__.__init__(self, parent, -1, self.image_from_path(image_path, parent), 
+                                self._parent.check_format(location), self._parent.check_format(size), style)
+
+        if(image_path != "None.jpg"): 
+            self.bitmap_images.append(image_path)
+
+        self.image_num = 0
+
+        if(menu): 
+            self.menu = parent._parent.new_panel(f"{str(size)[:str(size).find(',')]}, @30)", 
+                                        f"{str(location)[:str(size).find(',')]}{str(size)[str(size).find(',')+1:]}", 
+                                        (255,255,255))
+                                    
+            # in case of adding anything i have to change the way of accessing it in self.set_image
+            self.menu_sub = [
+                    self.menu.add_button('<', (0,0), "(self.Size.y, self.Size.y)", lambda _: self.set_image(self.image_num-1)),
+                    self.menu.add_textbox("(self.Size.x/2-self.Size.y,0)", "(self.Size.y*2,self.Size.y)",
+                                            f"{self.image_num}/{len(self.bitmap_images)}", multiline=False,
+                                            on_event=lambda event: self.set_image(event.String), event=wx.EVT_TEXT),
+                    self.menu.add_button('>', "(self.Size.x-self.Size.y,0)", "(self.Size.y, self.Size.y)", 
+                                                lambda _: self.set_image(self.image_num+1))
+                ]
+
+        else: 
+            self.menu = None
+            self.menu_sub = None
+
+        self.menu.Refresh()
+
+        self.set_image(len(self.bitmap_images))
+
+    # Saves all images droped on event
+    def image_drop_event(self, event:wx.EVT_DROP_FILES, filetypes:list=["jpg","jpeg","png"]):
+        logging.debug(f"Image_container.image_drop_event(self, {event}, {filetypes})")
+        logging.info(f"The user has dropped {event.GetNumberOfFiles()} file"
+                        f"{'s' if event.GetNumberOfFiles() != 1 else ''}")
+        for image in event.GetFiles():
+            if(image[len(image)-image[::-1].find("."):].lower() in filetypes):
+                self.bitmap_images.append(self.image_from_path(image, self._parent))
+
+        if(len(self.bitmap_images)):
+            self.set_image(len(self.bitmap_images))
+
+            self.CenterOnParent()
+
+            self.Refresh()
+
+    # Returns a bitmap from a image_path
+    @staticmethod
+    def image_from_path(image_path:str, panel:wx.Window, keep_ratio:bool=True, scale_to:"fit/fill"='fit') -> wx.Bitmap:
+        logging.debug(f"Image_container.image_from_path({image_path}, {panel}, {scale_to})")
+
+        if(keep_ratio or scale_to == "fit"):
+            img_size = imread(image_path).shape[:2][::-1]
+
+            logging.debug(f"Non-formatted image has size {img_size}")
+
+            if(scale_to == "fill"): 
+                if(img_size[0] < img_size[1]):
+                    img_size = (panel.Size.x, img_size[1]*panel.Size.x/img_size[0])
+                elif(img_size[0] > img_size[1]):
+                    img_size = (img_size[0]*panel.Size.y/img_size[1], panel.Size.y)
+                else: img_size = (min(panel._size),)*2
+            else: # Done so that i don't have to raise ValueError of scale_to
+                if(img_size[0] < img_size[1]):
+                    img_size = (img_size[0]*panel.Size.y/img_size[1], panel.Size.y)
+                elif(img_size[0] > img_size[1]):
+                    img_size = (panel.Size.x, img_size[1]*panel.Size.x/img_size[0])
+                else: img_size = (min(panel._size),)*2
+
+        else:
+            img_size = panel.Size
+        
+        logging.debug(f"Formatted image has size {img_size}")
+
+        return wx.Image(image_path, wx.BITMAP_TYPE_ANY).Scale(img_size[0], img_size[1],
+                                        wx.IMAGE_QUALITY_HIGH).ConvertToBitmap()
+
+    def set_image(self, image_num:int):
+        logging.debug(f"Image_container.set_image(self, {image_num})")
+        
+        if(str(image_num).find('/')+1): image_num = image_num[:image_num.find('/')]
+
+        try:
+            if(int(image_num) < 1 or int(image_num) > len(self.bitmap_images) or int(image_num) == self.image_num): return
+        except: return
+
+        self.image_num = int(image_num)
+
+        # This will trigger itself
+        if(not self.menu is None): self.menu_sub[1].SetValue(f"{image_num}/{len(self.bitmap_images)}")
+
+        self.SetBitmap(self.bitmap_images[self.image_num-1])
+        self.CenterOnParent()
+
+        self.Refresh()
+
+
+    def SetSize(self, size:tuple) -> None:
+        logging.debug(f"Image_container.SetSize(self, {size})")
+        self.__class__.__base__.SetSize(self, size)
+        self.CenterOnParent()
+    
+    def SetPosition(self, location:tuple) -> None:
+        logging.debug(f"Image_container.SetPosition(self, {location})")
+        self.__class__.__base__.SetPosition(self, location)
+        # self.CenterOnParent here looks unnecessary
 
 # Testing
 if __name__ == "__main__":
